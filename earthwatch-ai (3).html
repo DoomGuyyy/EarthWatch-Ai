@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EarthWatch AI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a full-screen 3D globe on deep space. Floating search and chips on top, a bottom sheet (phone) or left card (desktop) holds the area report. */
+:root {
+  --bg: #081535; --surface: #0f2250; --ink: #e6eeff; --muted: #93a6d1; --line: #27408a;
+  --accent: #5ab8ff; --accent-ink: #04122e;
+  --space-a: #15388f; --space-b: #061546;
+  --good: #5cc98d; --warn: #e3a93a; --bad: #ee6a58;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+#stars { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; background: radial-gradient(ellipse at 50% 45%, var(--space-a), var(--space-b) 72%); }
+#globe { position: absolute; inset: 0; z-index: 1; background: transparent; cursor: grab; touch-action: none; }
+#globe:active { cursor: grabbing; }
+#globe canvas { display: block; }
+.glass { background: var(--surface); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(8px); }
+button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 7px 12px; cursor: pointer; min-height: 38px; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.top { position: fixed; z-index: 1100; left: 0; right: 0; top: env(safe-area-inset-top, 0px); padding: 10px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; max-width: 520px; }
+.top > * { pointer-events: auto; }
+.brandrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; }
+.mark { width: 22px; height: 22px; border-radius: 50%; flex: none; background: radial-gradient(circle at 34% 30%, var(--accent), #123 70%); box-shadow: inset 0 0 0 2px var(--accent); }
+h1 { font-family: var(--font-display); font-size: 1.02rem; line-height: 1; margin: 0; letter-spacing: -0.01em; }
+.mode { font-family: var(--font-data); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 10px; color: var(--muted); white-space: nowrap; }
+.mode[data-live="true"] { color: var(--good); border-color: var(--good); }
+.search { position: relative; }
+.search form { display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 14px; }
+.search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 16px; padding: 7px 0; }
+.search input::placeholder { color: var(--muted); }
+.search button { border: 0; background: var(--accent); color: var(--accent-ink); }
+#sugg { position: absolute; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 4px; list-style: none; max-height: 40vh; overflow-y: auto; }
+#sugg li button { width: 100%; text-align: left; border: 0; background: transparent; border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; gap: 10px; }
+#sugg li button:hover { background: var(--bg); }
+#sugg .c { font-family: var(--font-data); font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; white-space: nowrap; }
+.chip small { font-family: var(--font-data); font-size: 0.68rem; color: var(--muted); margin-left: 6px; }
+.chip[aria-pressed="true"] small { color: inherit; opacity: 0.85; }
+
+.side { position: fixed; z-index: 1100; right: max(12px, env(safe-area-inset-right, 0px)); top: calc(env(safe-area-inset-top, 0px) + 176px); display: flex; flex-direction: column; gap: 8px; }
+.side button { width: 44px; height: 44px; padding: 0; font-size: 1.25rem; line-height: 1; display: grid; place-items: center; }
+.side svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#layerMenu { position: fixed; z-index: 1300; right: calc(max(12px, env(safe-area-inset-right, 0px)) + 54px); top: calc(env(safe-area-inset-top, 0px) + 176px); width: 230px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+#layerMenu p { margin: 0 0 2px; font-family: var(--font-data); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+#layerMenu .hint { text-transform: none; letter-spacing: 0; font-family: var(--font-body); font-size: 0.78rem; }
+#layerMenu button { text-align: left; }
+#layerList { display: flex; flex-direction: column; gap: 6px; }
+
+#sheet { position: fixed; z-index: 1200; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; }
+#sheetBody { overflow-y: auto; overscroll-behavior: contain; padding: 4px max(16px, env(safe-area-inset-left, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 16px; }
+#toggle { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: 10px; min-height: 34px; padding: 4px 10px; font-size: 0.82rem; z-index: 2; }
+.grip { height: 4px; width: 38px; border-radius: 2px; background: var(--line); margin: 8px auto 4px; flex: none; }
+.loc { display: flex; flex-direction: column; gap: 2px; padding-right: 84px; }
+.loc .name { font-family: var(--font-display); font-size: 1.3rem; line-height: 1.2; text-wrap: balance; }
+.loc .coord { font-family: var(--font-data); font-size: 0.78rem; color: var(--muted); }
+.details { display: flex; flex-direction: column; gap: 16px; }
+#sheet[data-collapsed="true"] .details { display: none; }
+.sec { display: flex; flex-direction: column; gap: 8px; }
+.sec h2 { margin: 0; font-family: var(--font-data); font-weight: 500; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.src { text-transform: none; letter-spacing: 0; }
+.level { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.level .word { font-family: var(--font-display); font-size: 2rem; line-height: 1; }
+.level .score { font-family: var(--font-data); color: var(--muted); font-size: 0.85rem; }
+.level[data-l="Low"] .word { color: var(--good); }
+.level[data-l="Moderate"] .word { color: var(--warn); }
+.level[data-l="High"] .word { color: var(--bad); }
+.gauge { position: relative; height: 10px; border-radius: 6px; background: linear-gradient(90deg, var(--good), var(--warn) 55%, var(--bad)); }
+.needle { position: absolute; top: -4px; width: 4px; height: 18px; border-radius: 2px; background: var(--ink); transform: translateX(-50%); box-shadow: 0 0 0 2px var(--surface); }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat .v { font-family: var(--font-data); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.stat .v small { font-size: 0.72rem; color: var(--muted); margin-left: 3px; }
+.stat .k { font-size: 0.78rem; color: var(--muted); }
+
+.rainhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.rainhead .big { font-family: var(--font-display); font-size: 2.3rem; line-height: 1; color: #8fd3ff; font-variant-numeric: tabular-nums; }
+.rainhead .big small { font-size: 0.95rem; color: var(--muted); margin-left: 4px; font-family: var(--font-body); }
+.rainhead .word { font-size: 0.9rem; color: var(--muted); }
+.meters { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 10px; background: rgba(90, 184, 255, 0.07); border: 1px solid var(--line); }
+.mh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.85rem; margin-bottom: 5px; }
+.mh b { font-family: var(--font-data); font-weight: 500; font-variant-numeric: tabular-nums; }
+.mh small { color: var(--muted); margin-left: 3px; }
+.bar { height: 8px; border-radius: 5px; background: rgba(147, 166, 209, 0.18); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #2d7dff, #7fe0ff); }
+.bar.soil i { background: linear-gradient(90deg, #c9a063, #4cb4d8 60%, #2d7dff); }
+.issues { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font-size: 0.8rem; padding: 3px 10px; border-radius: 999px; border: 1px solid currentColor; font-weight: 500; }
+.pill.bad { color: var(--bad); } .pill.warn { color: var(--warn); } .pill.good { color: var(--good); }
+.summary { margin: 0; padding: 12px; border-radius: 8px; background: var(--bg); max-width: 65ch; }
+.feat { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.note { color: var(--muted); font-size: 0.8rem; margin: 0; max-width: 75ch; }
+.hint { font-size: 0.88rem; color: var(--muted); margin: 0; }
+#toast { position: fixed; z-index: 1400; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 70px); padding: 8px 14px; font-size: 0.85rem; max-width: 90%; }
+
+.rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rankrow { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; padding: 6px 10px; min-height: 44px; }
+.rankrow .n { flex: 1; min-width: 0; }
+.rankrow .n small { display: block; color: var(--muted); font-size: 0.72rem; }
+.rankrow .r { font-family: var(--font-data); font-size: 0.78rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rankrow .pill { font-size: 0.72rem; padding: 1px 8px; }
+/* the dropped pin */
+.pinhost { width: 0; height: 0; position: relative; pointer-events: none; }
+.pin { position: absolute; left: -15px; bottom: 0; width: 30px; height: 40px; transform-origin: 50% 100%; animation: drop 0.7s cubic-bezier(0.3, 1.4, 0.5, 1) both; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.45)); }
+.pin svg { width: 100%; height: 100%; display: block; }
+@keyframes drop { 0% { transform: translateY(-170px) scaleY(1.15); opacity: 0; } 55% { opacity: 1; } 78% { transform: translateY(0) scaleY(0.82); } 100% { transform: translateY(0) scaleY(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pin { animation: none; } }
+
+@media (max-width: 860px) {
+  #sheet { left: 0; right: 0; bottom: 0; max-height: 52%; border-radius: 16px 16px 0 0; border-bottom: 0; box-shadow: 0 -6px 24px rgba(0,0,0,0.18); }
+  #sheetBody { padding-top: 10px; }
+}
+@media (min-width: 861px) {
+  #sheet { left: max(16px, env(safe-area-inset-left, 0px)); top: calc(env(safe-area-inset-top, 0px) + 176px); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 380px; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,0.2); height: fit-content; max-height: calc(100% - 192px); }
+  .grip { display: none; }
+  #sheetBody { padding-top: 14px; }
+  .top { right: auto; width: 520px; }
+  .side { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  #layerMenu { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+</style>
+
+<canvas id="stars" aria-hidden="true"></canvas>
+<script>
+(function () {
+  var c = document.getElementById("stars"), x = c.getContext("2d");
+  function seed(i) { var h = Math.sin(i * 127.1 + 311.7) * 43758.5453; return h - Math.floor(h); }
+  function draw() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2), w = window.innerWidth, h = window.innerHeight;
+    c.width = w * dpr; c.height = h * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, w, h);
+    var n = Math.round(w * h / 2600);
+    for (var i = 0; i < n; i++) {
+      var px = seed(i) * w, py = seed(i + 9000) * h, r = 0.25 + Math.pow(seed(i + 5000), 3) * 1.1, a = 0.3 + seed(i + 7000) * 0.7, t = seed(i + 3000);
+      x.fillStyle = t < 0.15 ? "rgba(170,205,255," + a + ")" : t < 0.25 ? "rgba(255,235,205," + a + ")" : "rgba(255,255,255," + a + ")";
+      x.beginPath(); x.arc(px, py, r, 0, 6.2832); x.fill();
+    }
+  }
+  draw(); window.addEventListener("resize", draw);
+})();
+</script>
+<div id="globe" role="application" aria-label="3D globe. Drag to spin, pinch or scroll to zoom, tap a place to inspect it."></div>
+
+<div class="top">
+  <div class="brandrow">
+    <div class="brand glass"><span class="mark" aria-hidden="true"></span><h1>EarthWatch AI</h1></div>
+    <span id="mode" class="mode glass" data-live="false">Sample data</span>
+  </div>
+  <div class="search">
+    <form id="searchForm" class="glass" autocomplete="off">
+      <input id="q" type="search" placeholder="Search a city, region or lat, lon" aria-label="Search a place" enterkeyhint="search">
+      <button type="submit">Go</button>
+    </form>
+    <ul id="sugg" class="glass" hidden></ul>
+  </div>
+  <div class="chips" id="presets" role="group" aria-label="Example places"></div>
+</div>
+
+<div class="side">
+  <button id="zin" class="glass" type="button" aria-label="Zoom in">+</button>
+  <button id="zout" class="glass" type="button" aria-label="Zoom out">&minus;</button>
+  <button id="layersBtn" class="glass" type="button" aria-label="Map layers" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg></button>
+  <button id="locate" class="glass" type="button" aria-label="Use my location"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+</div>
+
+<div id="layerMenu" class="glass" hidden>
+  <p>NASA layers on the globe</p>
+  <div id="layerList"></div>
+  <p class="hint" id="layerHint"></p>
+</div>
+
+<section id="sheet" aria-live="polite" data-collapsed="false">
+  <div class="grip" aria-hidden="true"></div>
+  <button id="toggle" type="button" aria-expanded="true">Hide</button>
+  <div id="sheetBody"></div>
+</section>
+<div id="toast" class="glass" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2.27.2/dist/globe.gl.min.js"></script>
+<script>window.Globe || document.write('<script src="https://unpkg.com/globe.gl@2.27.2/dist/globe.gl.min.js"><\/script>');</script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var sheetBody0 = function () { return document.getElementById("sheetBody"); };
+  window.addEventListener("error", function (e) {
+    var el = sheetBody0();
+    if (el && !el.textContent.trim()) {
+      var p = document.createElement("p"); p.className = "hint";
+      p.textContent = (typeof Globe === "undefined" ? "The globe library could not load. Check your internet connection and reload. " : "The globe could not start. ") + (e && e.message ? "(" + e.message + ")" : "");
+      el.appendChild(p);
+    }
+  });
+
+  /* ---------- helpers ---------- */
+  var DAY = 864e5;
+  function $(id) { return document.getElementById(id); }
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+  function rnd(a, b, k) { var h = Math.sin(a * 12.9898 + b * 78.233 + k * 37.719) * 43758.5453; return h - Math.floor(h); }
+  function ymd(d) { return d.toISOString().slice(0, 10).replace(/-/g, ""); }
+  function modisDate(d) {
+    var start = Date.UTC(d.getUTCFullYear(), 0, 0);
+    return "A" + d.getUTCFullYear() + String(Math.floor((d.getTime() - start) / DAY)).padStart(3, "0");
+  }
+  function fmtCoord(lat, lon) {
+    return Math.abs(lat).toFixed(2) + "°" + (lat >= 0 ? "N" : "S") + "  " + Math.abs(lon).toFixed(2) + "°" + (lon >= 0 ? "E" : "W");
+  }
+  function wrapLon(x) { return ((x + 180) % 360 + 360) % 360 - 180; }
+  function timeout(ms) { var c = new AbortController(); setTimeout(function () { c.abort(); }, ms); return c.signal; }
+  function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error("timeout")); }, ms); })]); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function isMobile() { return window.matchMedia("(max-width: 860px)").matches; }
+  var toastTimer;
+  function toast(msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3500); }
+
+  /* ---------- places ---------- */
+  var PLACES = [
+    { name: "Brahmaputra delta, Bangladesh", short: "Bangladesh", tag: "flood", lat: 23.8, lon: 90.4, rain7: 142, rain30: 410, maxDay: 64, soil: 0.82, ndvi: 0.61, veg5: -3 },
+    { name: "Rondônia, Brazil", short: "Rondônia", tag: "deforestation", lat: -10.9, lon: -62.9, rain7: 38, rain30: 150, maxDay: 22, soil: 0.55, ndvi: 0.58, veg5: -14 },
+    { name: "Kerala coast, India", short: "Kerala", tag: "heavy rain", lat: 10.0, lon: 76.3, rain7: 118, rain30: 330, maxDay: 71, soil: 0.78, ndvi: 0.66, veg5: -2 },
+    { name: "Sahel, Niger", short: "Sahel", tag: "drought", lat: 13.5, lon: 2.1, rain7: 1, rain30: 20, maxDay: 1, soil: 0.12, ndvi: 0.22, veg5: -6 }
+  ];
+  var GAZ = [
+    ["Delhi, India",28.61,77.21],["Mumbai, India",19.08,72.88],["Chennai, India",13.08,80.27],["Kolkata, India",22.57,88.36],["Bengaluru, India",12.97,77.59],["Hyderabad, India",17.39,78.48],["Kochi, India",9.93,76.27],["Dhaka, Bangladesh",23.81,90.41],["Karachi, Pakistan",24.86,67.0],["Kathmandu, Nepal",27.72,85.32],["Colombo, Sri Lanka",6.93,79.86],["Bangkok, Thailand",13.76,100.5],["Jakarta, Indonesia",-6.2,106.85],["Manila, Philippines",14.6,120.98],["Hanoi, Vietnam",21.03,105.85],["Beijing, China",39.9,116.4],["Shanghai, China",31.23,121.47],["Tokyo, Japan",35.68,139.65],["Seoul, South Korea",37.57,126.98],["Dubai, UAE",25.2,55.27],["Riyadh, Saudi Arabia",24.71,46.68],["Tehran, Iran",35.69,51.39],["Istanbul, Türkiye",41.01,28.98],["Moscow, Russia",55.76,37.62],["Cairo, Egypt",30.04,31.24],["Lagos, Nigeria",6.52,3.38],["Niamey, Niger",13.51,2.11],["Nairobi, Kenya",-1.29,36.82],["Addis Ababa, Ethiopia",9.03,38.74],["Kinshasa, DR Congo",-4.44,15.27],["Johannesburg, South Africa",-26.2,28.05],["Cape Town, South Africa",-33.92,18.42],["Antananarivo, Madagascar",-18.88,47.51],["London, UK",51.51,-0.13],["Paris, France",48.86,2.35],["Berlin, Germany",52.52,13.4],["Madrid, Spain",40.42,-3.7],["Rome, Italy",41.9,12.5],["Sydney, Australia",-33.87,151.21],["Perth, Australia",-31.95,115.86],["Auckland, New Zealand",-36.85,174.76],["New York, USA",40.71,-74.0],["Houston, USA",29.76,-95.37],["Los Angeles, USA",34.05,-118.24],["Miami, USA",25.76,-80.19],["Mexico City, Mexico",19.43,-99.13],["Havana, Cuba",23.11,-82.37],["Bogotá, Colombia",4.71,-74.07],["Lima, Peru",-12.05,-77.04],["Manaus, Brazil",-3.12,-60.02],["São Paulo, Brazil",-23.55,-46.63],["Porto Velho, Brazil",-8.76,-63.9],["Buenos Aires, Argentina",-34.6,-58.38],["Santiago, Chile",-33.45,-70.67],
+    ["Amazon rainforest",-4,-62,4],["Sahara Desert",23,13,4],["Himalayas",28,85,5],["Great Barrier Reef",-18.3,147.7,5],["Congo Basin",-1,23,5],["Ganges delta",22.3,89.0,6],["Indian Ocean",-15,75,3]
+  ];
+  var STATES = [
+    ["Andhra Pradesh","Amaravati",16.51,80.52],["Arunachal Pradesh","Itanagar",27.08,93.61],["Assam","Dispur",26.14,91.79],["Bihar","Patna",25.59,85.14],["Chhattisgarh","Raipur",21.25,81.63],["Goa","Panaji",15.5,73.83],["Gujarat","Gandhinagar",23.22,72.65],["Haryana","Chandigarh",30.73,76.78],["Himachal Pradesh","Shimla",31.1,77.17],["Jharkhand","Ranchi",23.34,85.31],["Karnataka","Bengaluru",12.97,77.59],["Kerala","Thiruvananthapuram",8.52,76.94],["Madhya Pradesh","Bhopal",23.26,77.41],["Maharashtra","Mumbai",19.08,72.88],["Manipur","Imphal",24.82,93.94],["Meghalaya","Shillong",25.57,91.88],["Mizoram","Aizawl",23.73,92.72],["Nagaland","Kohima",25.67,94.11],["Odisha","Bhubaneswar",20.3,85.82],["Punjab","Ludhiana",30.9,75.86],["Rajasthan","Jaipur",26.91,75.79],["Sikkim","Gangtok",27.33,88.61],["Tamil Nadu","Chennai",13.08,80.27],["Telangana","Hyderabad",17.39,78.48],["Tripura","Agartala",23.83,91.28],["Uttar Pradesh","Lucknow",26.85,80.95],["Uttarakhand","Dehradun",30.32,78.03],["West Bengal","Kolkata",22.57,88.36],
+    ["Delhi","New Delhi",28.61,77.21],["Jammu and Kashmir","Srinagar",34.08,74.8],["Ladakh","Leh",34.15,77.58],["Puducherry","Puducherry",11.93,79.83],["Andaman and Nicobar","Port Blair",11.62,92.73],["Lakshadweep","Kavaratti",10.57,72.64],["Daman and Diu","Daman",20.4,72.83]
+  ].map(function (a) { return { name: a[0], cap: a[1], lat: a[2], lon: a[3] }; });
+  function nearestCity(lat, lon) {
+    var best = null, bd = 1e9;
+    GAZ.concat(STATES.map(function (s) { return [s.cap + ", " + s.name, s.lat, s.lon]; })).forEach(function (g) {
+      if (g.length > 3) return;
+      var d = Math.hypot(g[1] - lat, (g[2] - lon) * Math.cos(lat * Math.PI / 180));
+      if (d < bd) { bd = d; best = g; }
+    });
+    return { g: best, d: bd };
+  }
+  function nearestPlace(lat, lon) {
+    var best = null, bd = 1e9;
+    PLACES.forEach(function (p) {
+      var d = Math.hypot(p.lat - lat, (p.lon - lon) * Math.cos(lat * Math.PI / 180));
+      if (d < bd) { bd = d; best = p; }
+    });
+    return { place: best, dist: bd };
+  }
+  function offlineLabel(lat, lon) {
+    var np = nearestPlace(lat, lon);
+    if (np.dist < 1.5) return np.place.name;
+    var nc = nearestCity(lat, lon);
+    if (nc.g && nc.d < 4) return "Near " + nc.g[0].split(",")[0];
+    return "Selected location";
+  }
+
+  /* ---------- sample data (used when NASA cannot be reached) ---------- */
+  function sample(lat, lon) {
+    var np = nearestPlace(lat, lon);
+    if (np.dist < 1.5) {
+      var p = np.place;
+      return { rain7: p.rain7, rain30: p.rain30, maxDay: p.maxDay, soil: p.soil, ndvi: p.ndvi, veg5: p.veg5, src: { rain: "sample", veg: "sample" } };
+    }
+    var t = clamp(1 - Math.abs(lat) / 35, 0, 1);
+    var r1 = rnd(lat, lon, 1), r2 = rnd(lat, lon, 2), r3 = rnd(lat, lon, 3);
+    var rain7 = Math.round(5 + 90 * t * r1 + 25 * r2);
+    return {
+      rain7: rain7,
+      rain30: Math.round(rain7 * (2.2 + 1.5 * r2)),
+      maxDay: Math.round(rain7 * (0.25 + 0.3 * r3)),
+      soil: +clamp(0.15 + 0.6 * t * r1 + 0.25 * r2, 0.05, 0.95).toFixed(2),
+      ndvi: +clamp(0.2 + 0.5 * t * (0.5 + r2 * 0.5) + 0.15 * r3, 0.08, 0.85).toFixed(2),
+      veg5: Math.round((r3 - 0.65) * 24),
+      src: { rain: "sample", veg: "sample" }
+    };
+  }
+
+  /* ---------- live NASA data ---------- */
+  function mean(a) { return a.length ? a.reduce(function (s, v) { return s + v; }, 0) / a.length : null; }
+  async function livePower(lat, lon) {
+    var end = new Date(Date.now() - 3 * DAY), start = new Date(Date.now() - 33 * DAY);
+    var url = "https://power.larc.nasa.gov/api/temporal/daily/point?parameters=PRECTOTCORR,GWETROOT&community=AG" +
+      "&longitude=" + lon.toFixed(3) + "&latitude=" + lat.toFixed(3) + "&start=" + ymd(start) + "&end=" + ymd(end) + "&format=JSON";
+    var res = await fetch(url, { signal: timeout(9000) });
+    if (!res.ok) throw new Error("power " + res.status);
+    var P = (await res.json()).properties.parameter;
+    var rain = Object.keys(P.PRECTOTCORR).sort().map(function (k) { return P.PRECTOTCORR[k]; }).filter(function (v) { return v >= 0; });
+    var soilV = Object.keys(P.GWETROOT).sort().map(function (k) { return P.GWETROOT[k]; }).filter(function (v) { return v >= 0; });
+    if (rain.length < 7) throw new Error("no rain data");
+    return {
+      rain7: Math.round(rain.slice(-7).reduce(function (s, v) { return s + v; }, 0)),
+      rain30: Math.round(rain.reduce(function (s, v) { return s + v; }, 0)),
+      maxDay: Math.round(Math.max.apply(null, rain)),
+      soil: +(mean(soilV.slice(-3)) || 0.4).toFixed(2)
+    };
+  }
+  async function liveNdvi(lat, lon) {
+    async function windowMean(shiftYears) {
+      var endD = new Date(Date.now() - 20 * DAY), startD = new Date(endD.getTime() - 144 * DAY);
+      endD.setUTCFullYear(endD.getUTCFullYear() - shiftYears);
+      startD.setUTCFullYear(startD.getUTCFullYear() - shiftYears);
+      var url = "https://modis.ornl.gov/rst/api/v1/MOD13Q1/subset?latitude=" + lat.toFixed(4) + "&longitude=" + lon.toFixed(4) +
+        "&band=250m_16_days_NDVI&startDate=" + modisDate(startD) + "&endDate=" + modisDate(endD) + "&kmAboveBelow=0&kmLeftRight=0";
+      var res = await fetch(url, { headers: { Accept: "application/json" }, signal: timeout(12000) });
+      if (!res.ok) throw new Error("modis " + res.status);
+      var j = await res.json(), vals = [];
+      (j.subset || []).forEach(function (s) { (s.data || []).forEach(function (v) { if (v > -2000) vals.push(v * 0.0001); }); });
+      if (!vals.length) throw new Error("no ndvi");
+      return mean(vals);
+    }
+    var both = await Promise.all([windowMean(0), windowMean(5)]);
+    return { ndvi: +both[0].toFixed(2), veg5: Math.round((both[0] - both[1]) / Math.max(both[1], 0.05) * 100) };
+  }
+  async function live(lat, lon) {
+    var base = sample(lat, lon);
+    var out = { rain7: base.rain7, rain30: base.rain30, maxDay: base.maxDay, soil: base.soil, ndvi: base.ndvi, veg5: base.veg5, src: { rain: "sample", veg: "sample" } };
+    var r = await Promise.allSettled([livePower(lat, lon), liveNdvi(lat, lon)]);
+    if (r[0].status === "fulfilled") { Object.assign(out, r[0].value); out.src.rain = "NASA POWER"; }
+    if (r[1].status === "fulfilled") { Object.assign(out, r[1].value); out.src.veg = "MODIS MOD13Q1"; }
+    if (r[0].status !== "fulfilled" && r[1].status !== "fulfilled") throw new Error("offline");
+    return out;
+  }
+  async function reverseName(lat, lon) {
+    try {
+      var res = await fetch("https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=" + lat.toFixed(4) + "&lon=" + lon.toFixed(4), { signal: timeout(6000) });
+      var j = await res.json(), a = j.address || {};
+      var parts = [a.city || a.town || a.village || a.county || a.state_district, a.state, a.country].filter(Boolean);
+      var seen = {}; parts = parts.filter(function (x) { if (seen[x]) return false; seen[x] = 1; return true; });
+      return parts.slice(0, 3).join(", ") || null;
+    } catch (e) { return null; }
+  }
+
+  /* ---------- analysis ---------- */
+  function analyse(d) {
+    var score = clamp(Math.round(d.rain7 / 150 * 45 + d.maxDay / 80 * 20 + d.soil * 35), 0, 100);
+    var level = score < 30 ? "Low" : score < 60 ? "Moderate" : "High";
+    var issues = [];
+    if (level === "High") issues.push({ t: "Flood risk high", c: "bad" });
+    else if (level === "Moderate") issues.push({ t: "Flood risk moderate", c: "warn" });
+    if (d.maxDay >= 50) issues.push({ t: "Heavy rain event", c: "bad" });
+    if (d.veg5 <= -10) issues.push({ t: "Vegetation loss", c: "bad" });
+    else if (d.veg5 <= -5) issues.push({ t: "Vegetation declining", c: "warn" });
+    if (d.rain30 < 40 && d.soil < 0.25) issues.push({ t: "Drought stress", c: "warn" });
+    if (!issues.length) issues.push({ t: "No active issues", c: "good" });
+    var cover = d.ndvi > 0.6 ? "Dense vegetation or forest" : d.ndvi > 0.35 ? "Mixed cropland and vegetation" : d.ndvi > 0.2 ? "Sparse vegetation or scrubland" : "Barren, desert or built-up land";
+    var parts = [];
+    if (level === "High") parts.push("Flood risk is high: " + d.rain7 + " mm of rain fell in the last 7 days and the ground is " + Math.round(d.soil * 100) + "% saturated.");
+    else if (level === "Moderate") parts.push("Flood risk is moderate: " + d.rain7 + " mm in 7 days on ground that is " + Math.round(d.soil * 100) + "% saturated.");
+    else parts.push("Flood risk is low: only " + d.rain7 + " mm of rain in the last 7 days.");
+    if (d.veg5 <= -5) parts.push("Vegetation is " + Math.abs(d.veg5) + "% lower than the same season 5 years ago, which can point to forest or crop loss.");
+    else if (d.veg5 >= 6) parts.push("Vegetation is " + d.veg5 + "% greener than 5 years ago.");
+    else parts.push("Vegetation is stable compared with 5 years ago (" + (d.veg5 > 0 ? "+" : "") + d.veg5 + "%).");
+    return { score: score, level: level, issues: issues, cover: cover, summary: parts.join(" ") };
+  }
+
+  /* ---------- info sheet ---------- */
+  var body = $("sheetBody"), sheet = $("sheet");
+  var liveOK = false, baseOK = false;
+  function srcTag(s) { return '<span class="src">' + (s === "sample" ? "sample value" : esc(s)) + "</span>"; }
+  function modeNoteText() {
+    var a = liveOK ? "Connected to NASA services: rainfall, soil wetness and vegetation for the pinned point are fetched live." : "This view cannot reach NASA servers, so values are labelled sample numbers.";
+    var b = baseOK ? "" : " The globe shows a simple schematic instead of NASA imagery.";
+    return a + b + " Risk levels are rule-based estimates, not official warnings.";
+  }
+  function meter(label, v, max, unit, cls) {
+    return '<div class="meter"><div class="mh"><span>' + label + '</span><b>' + v + '<small>' + unit + '</small></b></div><div class="bar ' + (cls || "") + '"><i style="width:' + clamp(v / max * 100, 3, 100) + '%"></i></div></div>';
+  }
+  function rainWord(r) { return r < 5 ? "Dry week" : r < 25 ? "Light rain" : r < 60 ? "Moderate rain" : r < 100 ? "Heavy rain" : "Very heavy rain"; }
+  function soilWord(p) { return p < 25 ? "dry" : p < 50 ? "moist" : p < 75 ? "wet" : "saturated"; }
+  function render(lat, lon, d, name) {
+    var a = analyse(d), vs = d.veg5 > 0 ? "+" : "";
+    body.innerHTML =
+      '<div class="loc"><span class="name">' + esc(name) + '</span><span class="coord">' + fmtCoord(lat, lon) + "</span></div>" +
+      '<div class="issues">' + a.issues.map(function (i) { return '<span class="pill ' + i.c + '">' + i.t + "</span>"; }).join("") + "</div>" +
+      '<div class="details">' +
+        '<div class="sec"><h2>Summary</h2><p class="summary">' + esc(a.summary) + "</p></div>" +
+        '<div class="sec"><h2>Flood risk ' + srcTag(d.src.rain) + '</h2><div class="level" data-l="' + a.level + '"><span class="word">' + a.level + '</span><span class="score">score ' + a.score + ' / 100</span></div>' +
+          '<div class="gauge"><span class="needle" style="left:' + a.score + '%"></span></div></div>' +
+        '<div class="sec"><h2>Rainfall and soil ' + srcTag(d.src.rain) + '</h2>' +
+          '<div class="rainhead"><span class="big">' + d.rain7 + '<small>mm in 7 days</small></span><span class="word">' + rainWord(d.rain7) + '</span></div>' +
+          '<div class="meters">' + meter("Last 7 days", d.rain7, 150, "mm") + meter("Last 30 days", d.rain30, 450, "mm") + meter("Wettest day", d.maxDay, 100, "mm") +
+          meter("Soil wetness (" + soilWord(Math.round(d.soil * 100)) + ")", Math.round(d.soil * 100), 100, "%", "soil") + '</div></div>' +
+        '<div class="sec"><h2>Vegetation ' + srcTag(d.src.veg) + '</h2><div class="stats">' +
+          '<div class="stat"><div class="v">' + d.ndvi.toFixed(2) + '</div><div class="k">NDVI (0 bare, 1 dense)</div></div>' +
+          '<div class="stat"><div class="v">' + vs + d.veg5 + '<small>%</small></div><div class="k">vs 5 years ago</div></div></div>' +
+          '<p class="feat">Land type: ' + a.cover + "</p></div>" +
+        '<p class="note" id="modeNote">' + modeNoteText() + "</p>" +
+      "</div>";
+  }
+  function renderLoading(lat, lon) {
+    body.innerHTML = '<div class="loc"><span class="name">Reading NASA data…</span><span class="coord">' + fmtCoord(lat, lon) + '</span></div><p class="hint">Fetching rainfall, soil moisture and vegetation for this spot.</p>';
+  }
+  $("toggle").addEventListener("click", function () {
+    var c = sheet.dataset.collapsed !== "true";
+    sheet.dataset.collapsed = String(c);
+    this.textContent = c ? "Show" : "Hide";
+    this.setAttribute("aria-expanded", String(!c));
+  });
+
+  /* ---------- schematic texture (used until NASA imagery loads, or if it cannot) ---------- */
+  var CONT = [
+    [[70,-165],[72,-125],[70,-95],[62,-78],[58,-62],[47,-53],[44,-66],[35,-76],[25,-80],[25,-97],[18,-95],[15,-92],[8,-80],[9,-78],[18,-105],[23,-110],[32,-117],[40,-124],[48,-124],[58,-135],[60,-150],[56,-165],[65,-168]],
+    [[83,-35],[76,-20],[66,-35],[60,-44],[68,-54],[78,-70]],
+    [[12,-72],[10,-62],[5,-52],[-2,-44],[-8,-35],[-23,-41],[-34,-53],[-40,-62],[-52,-68],[-55,-70],[-46,-75],[-30,-71],[-18,-70],[-5,-81],[2,-79],[9,-78]],
+    [[36,-9],[43,-9],[48,-5],[51,2],[54,8],[57,10],[56,20],[60,25],[66,25],[70,30],[69,45],[68,60],[73,70],[77,100],[73,120],[71,140],[67,170],[64,178],[60,163],[52,157],[50,143],[43,132],[39,127],[35,129],[31,121],[23,117],[21,109],[16,108],[10,107],[9,105],[1,104],[8,100],[13,100],[16,97],[16,94],[22,91],[20,86],[13,80],[8,77],[15,74],[21,72],[24,67],[25,61],[27,56],[24,57],[17,55],[12,45],[15,42],[27,35],[31,34],[36,36],[37,28],[40,26],[38,22],[40,19],[44,13],[41,16],[38,16],[44,8],[43,3],[37,-2]],
+    [[37,10],[33,22],[31,32],[22,37],[12,43],[11,51],[0,42],[-10,40],[-26,33],[-34,26],[-34,18],[-22,14],[-12,13],[-5,12],[4,9],[5,-5],[8,-13],[15,-17],[21,-17],[28,-12],[35,-6]],
+    [[-11,132],[-12,142],[-19,147],[-28,153],[-38,148],[-39,144],[-35,136],[-32,128],[-35,117],[-22,114],[-17,122]],
+    [[-12,49],[-25,47],[-20,44]],
+    [[-6,95],[5,95],[5,106],[-6,106]],
+    [[2,109],[7,117],[1,119],[-4,116],[-3,110]],
+    [[35,130],[44,142],[34,136]],
+    [[50,-5],[58,-5],[58,-3],[53,1],[50,1]]
+  ];
+  function schematicUrl() {
+    var c = document.createElement("canvas"); c.width = 2048; c.height = 1024;
+    var x = c.getContext("2d");
+    function X(lon) { return (lon + 180) / 360 * 2048; }
+    function Y(lat) { return (90 - lat) / 180 * 1024; }
+    x.fillStyle = "#16414d"; x.fillRect(0, 0, 2048, 1024);
+    x.strokeStyle = "rgba(255,255,255,0.12)"; x.lineWidth = 1;
+    var i;
+    for (i = -60; i <= 60; i += 30) { x.beginPath(); x.moveTo(0, Y(i)); x.lineTo(2048, Y(i)); x.stroke(); }
+    for (i = -150; i <= 150; i += 30) { x.beginPath(); x.moveTo(X(i), 0); x.lineTo(X(i), 1024); x.stroke(); }
+    x.fillStyle = "#6c8a6a"; x.strokeStyle = "#a7c3a2"; x.lineWidth = 2;
+    CONT.forEach(function (pts) {
+      x.beginPath();
+      pts.forEach(function (p, k) { if (k) x.lineTo(X(p[1]), Y(p[0])); else x.moveTo(X(p[1]), Y(p[0])); });
+      x.closePath(); x.fill(); x.stroke();
+    });
+    return c.toDataURL("image/png");
+  }
+
+  /* ---------- the globe ---------- */
+  var globeEl = $("globe");
+  var globe = null, ctl = null, current = null, token = 0;
+  var bordersLoaded = false, labelsOn = true;
+  var LABELS = [["EUROPE",52,18],["AFRICA",4,20],["ASIA",48,90],["NORTH AMERICA",50,-100],["SOUTH AMERICA",-15,-60],["AUSTRALIA",-25,135],["Indian Ocean",-15,78],["Atlantic Ocean",15,-35],["Pacific Ocean",5,-150]].map(function (a) { return { text: a[0], lat: a[1], lng: a[2], sea: a[0] !== a[0].toUpperCase() }; });
+
+  function pinElement() {
+    var host = document.createElement("div"); host.className = "pinhost";
+    host.innerHTML = '<div class="pin"><svg viewBox="0 0 30 40" aria-hidden="true"><path d="M15 39C15 39 2 24.5 2 14.5a13 13 0 0 1 26 0C28 24.5 15 39 15 39Z" fill="#e5483a" stroke="#fff" stroke-width="2.2"/><circle cx="15" cy="14.5" r="4.8" fill="#fff"/></svg></div>';
+    return host;
+  }
+  function dropPin(lat, lng) {
+    if (!globe) return;
+    globe.htmlElementsData([{ lat: lat, lng: lng }]);
+    globe.ringsData([{ lat: lat, lng: lng }]);
+  }
+  function camAlt() { var p = globe.pointOfView(); return p ? p.altitude : 2; }
+  function focus(lat, lng, alt, ms) {
+    var shift = 0;
+    if (isMobile() && sheet.dataset.collapsed !== "true") shift = clamp(9 * (1 + alt), 0, 28);
+    globe.pointOfView({ lat: clamp(lat - shift, -85, 85), lng: lng, altitude: alt }, ms == null ? 1100 : ms);
+  }
+  function zAlt(z) { return { 2: 1.0, 3: 1.6, 4: 1.1, 5: 0.7, 6: 0.4, 7: 0.25 }[z] || 0.6; }
+
+  try {
+    globe = Globe({ animateIn: false })(globeEl)
+      .backgroundColor("rgba(0,0,0,0)")
+      .showAtmosphere(true).atmosphereColor("#7fd8de").atmosphereAltitude(0.2)
+      .globeImageUrl(schematicUrl())
+      .width(globeEl.clientWidth || window.innerWidth).height(globeEl.clientHeight || window.innerHeight)
+      .htmlElementsData([]).htmlLat("lat").htmlLng("lng").htmlAltitude(0.002).htmlElement(pinElement)
+      .ringsData([]).ringLat("lat").ringLng("lng").ringColor(function () { return function (t) { return "rgba(229,72,58," + (1 - t) * 0.9 + ")"; }; })
+      .ringMaxRadius(3.2).ringPropagationSpeed(1.6).ringRepeatPeriod(1500)
+      .labelsData(LABELS).labelLat("lat").labelLng("lng").labelText("text")
+      .labelSize(function (d) { return d.sea ? 1.5 : 1.9; }).labelDotRadius(0).labelAltitude(0.004)
+      .labelColor(function (d) { return d.sea ? "rgba(190,230,240,0.75)" : "rgba(255,255,255,0.85)"; }).labelResolution(2);
+    if (typeof globe.htmlElementVisibilityModifier === "function") globe.htmlElementVisibilityModifier(function (el, vis) { el.style.opacity = vis ? "1" : "0"; });
+    ctl = globe.controls();
+    ctl.enablePan = false; ctl.enableDamping = true; ctl.dampingFactor = 0.12;
+    ctl.minDistance = 106; ctl.maxDistance = 450; ctl.autoRotate = false;
+    ctl.addEventListener("change", function () {
+      var alt = globe.camera().position.length() / 100 - 1;
+      ctl.rotateSpeed = clamp(alt * 0.55 + 0.1, 0.12, 0.9);
+      ctl.zoomSpeed = clamp(alt * 0.8 + 0.3, 0.3, 1.2);
+      var want = alt > 0.55;
+      if (want !== labelsOn) { labelsOn = want; globe.labelsData(want ? LABELS : []); }
+    });
+    globe.pointOfView({ lat: 18, lng: 80, altitude: 2.2 }, 0);
+  } catch (err) {
+    body.innerHTML = '<p class="hint">Your browser could not start the 3D globe (WebGL is needed). Try Chrome, and make sure hardware acceleration is on. ' + esc(err && err.message ? err.message : "") + "</p>";
+    return;
+  }
+  window.addEventListener("resize", function () { globe.width(globeEl.clientWidth).height(globeEl.clientHeight); });
+
+  /* country borders, drawn as thin lines so they never block taps */
+  function loadBorders() {
+    if (bordersLoaded || typeof topojson === "undefined") return;
+    fetch("https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json", { signal: timeout(15000) })
+      .then(function (r) { return r.json(); })
+      .then(function (topo) {
+        var feats = topojson.feature(topo, topo.objects.countries).features, paths = [];
+        feats.forEach(function (f) {
+          var g = f.geometry; if (!g) return;
+          var polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+          polys.forEach(function (poly) { poly.forEach(function (ring) { paths.push({ pts: ring }); }); });
+        });
+        globe.pathsData(paths).pathPoints("pts").pathPointLat(function (p) { return p[1]; }).pathPointLng(function (p) { return p[0]; })
+          .pathPointAlt(0.0025).pathColor(function () { return "rgba(255,255,255,0.38)"; }).pathTransitionDuration(0);
+        bordersLoaded = true;
+      }).catch(function () {});
+  }
+  loadBorders();
+
+  /* ---------- NASA imagery on the globe ---------- */
+  var FALLBACK_IMG = "https://unpkg.com/three-globe@2.31.0/example/img/earth-blue-marble.jpg";
+  function wms(layer, fmt, w, h) {
+    return "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=" + layer +
+      "&STYLES=&SRS=EPSG:4326&BBOX=-180,-90,180,90&WIDTH=" + w + "&HEIGHT=" + h + "&FORMAT=" + encodeURIComponent(fmt) + (fmt === "image/png" ? "&TRANSPARENT=TRUE" : "");
+  }
+  function loadImg(url) {
+    return new Promise(function (res, rej) {
+      var i = new Image(); i.crossOrigin = "anonymous";
+      i.onload = function () { res(i); }; i.onerror = function () { rej(new Error("image")); };
+      i.src = url;
+    });
+  }
+  var LAYERS = [
+    { id: "ndvi", label: "Vegetation (NDVI)", layer: "MODIS_Terra_NDVI_8Day", alpha: 0.75, on: false, img: null },
+    { id: "rain", label: "Rain rate", layer: "IMERG_Precipitation_Rate", alpha: 0.9, on: false, img: null },
+    { id: "fire", label: "Active fires", layer: "VIIRS_SNPP_Thermal_Anomalies_375m_All", alpha: 1, on: false, img: null }
+  ];
+  var baseImg = null, texUrl = null, layerBtns = {};
+  function compose() {
+    return new Promise(function (resolve) {
+      if (!baseImg) { resolve(); return; }
+      var c = document.createElement("canvas"); c.width = 4096; c.height = 2048;
+      var x = c.getContext("2d");
+      x.drawImage(baseImg, 0, 0, 4096, 2048);
+      LAYERS.forEach(function (l) { if (l.on && l.img) { x.globalAlpha = l.alpha; x.drawImage(l.img, 0, 0, 4096, 2048); x.globalAlpha = 1; } });
+      c.toBlob(function (b) {
+        if (!b) { resolve(); return; }
+        var u = URL.createObjectURL(b);
+        globe.globeImageUrl(u);
+        var old = texUrl; texUrl = u;
+        if (old) setTimeout(function () { URL.revokeObjectURL(old); }, 4000);
+        resolve();
+      }, "image/jpeg", 0.92);
+    });
+  }
+  LAYERS.forEach(function (L0) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = L0.label; b.disabled = true; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", async function () {
+      if (!L0.on && !L0.img) {
+        toast("Loading " + L0.label + " from NASA…"); b.disabled = true;
+        try { L0.img = await withTimeout(loadImg(wms(L0.layer, "image/png", 4096, 2048)), 30000); }
+        catch (e) { b.disabled = false; toast("Could not load this layer right now."); return; }
+        b.disabled = false;
+      }
+      L0.on = !L0.on; b.setAttribute("aria-pressed", String(L0.on));
+      await compose();
+    });
+    $("layerList").appendChild(b); layerBtns[L0.id] = b;
+  });
+  function setLayerHint() { $("layerHint").textContent = baseOK ? "Base globe: NASA Blue Marble. Overlays come from NASA GIBS." : "Layers unlock when NASA imagery can load (open the downloaded copy in Chrome)."; }
+  setLayerHint();
+  (async function loadBase() {
+    try { baseImg = await withTimeout(loadImg(wms("BlueMarble_ShadedRelief_Bathymetry", "image/jpeg", 4096, 2048)), 30000); }
+    catch (e) { try { baseImg = await withTimeout(loadImg(FALLBACK_IMG), 25000); } catch (e2) { baseImg = null; } }
+    if (baseImg) {
+      baseOK = true; await compose();
+      LAYERS.forEach(function (L0) { layerBtns[L0.id].disabled = false; });
+      setLayerHint(); setMode();
+    }
+  })();
+
+  $("layersBtn").addEventListener("click", function () {
+    var m = $("layerMenu"); m.hidden = !m.hidden; this.setAttribute("aria-expanded", String(!m.hidden));
+  });
+  $("zin").addEventListener("click", function () { var p = globe.pointOfView(); globe.pointOfView({ lat: p.lat, lng: p.lng, altitude: clamp(p.altitude * 0.55, 0.07, 4) }, 500); });
+  $("zout").addEventListener("click", function () { var p = globe.pointOfView(); globe.pointOfView({ lat: p.lat, lng: p.lng, altitude: clamp(p.altitude * 1.8, 0.07, 4) }, 500); });
+  $("locate").addEventListener("click", function () {
+    if (!navigator.geolocation) { toast("Location is not available here."); return; }
+    try {
+      navigator.geolocation.getCurrentPosition(function (p) { goTo(p.coords.latitude, p.coords.longitude, 6, null); },
+        function () { toast("Location is blocked in this view. Search for a place instead."); }, { timeout: 8000 });
+    } catch (e) { toast("Location is blocked in this view. Search for a place instead."); }
+  });
+
+  /* ---------- selecting a place ---------- */
+  function setMode() {
+    $("mode").textContent = liveOK ? "Live NASA data" : "Sample data";
+    $("mode").dataset.live = String(liveOK);
+    var n = $("modeNote"); if (n) n.textContent = modeNoteText();
+  }
+  async function select(lat, lon, name) {
+    indiaMode = false; indiaTok++;
+    lat = clamp(lat, -85, 85); lon = wrapLon(lon);
+    current = { lat: lat, lon: lon, name: name };
+    dropPin(lat, lon);
+    var my = ++token, d, label = name;
+    if (liveOK) {
+      renderLoading(lat, lon);
+      var r = await Promise.allSettled([live(lat, lon), name ? Promise.resolve(name) : reverseName(lat, lon)]);
+      d = r[0].status === "fulfilled" ? r[0].value : sample(lat, lon);
+      if (!label) label = (r[1].status === "fulfilled" && r[1].value) || offlineLabel(lat, lon);
+    } else {
+      d = sample(lat, lon);
+      if (!label) label = offlineLabel(lat, lon);
+    }
+    if (my !== token) return;
+    render(lat, lon, d, label);
+  }
+  function goTo(lat, lon, z, name) { focus(lat, lon, zAlt(z)); select(lat, lon, name); }
+  function tapSelect(lat, lng) {
+    $("sugg").hidden = true; $("layerMenu").hidden = true; $("layersBtn").setAttribute("aria-expanded", "false");
+    var alt = camAlt();
+    focus(lat, lng, alt > 1.3 ? 0.9 : alt);
+    select(lat, lng, null);
+  }
+
+  /* ---------- India overview ---------- */
+  var indiaMode = false, indiaTok = 0, indiaRows = [];
+  var LV_COLOR = { High: "#ee6a58", Moderate: "#e3a93a", Low: "#5cc98d" };
+  function paintDots() {
+    var data = indiaRows.map(function (r) { return { lat: r.s.lat, lng: r.s.lon, color: LV_COLOR[r.a.level] }; });
+    globe.pointsData(data).pointLat("lat").pointLng("lng").pointColor("color").pointAltitude(0.014).pointRadius(0.42).pointsMerge(true);
+  }
+  function renderIndia(finished) {
+    var rows = indiaRows.map(function (r, i) { r.i = i; return r; }).sort(function (a, b) { return b.a.score - a.a.score; });
+    var hi = 0, mo = 0, lo = 0, liveN = 0;
+    rows.forEach(function (r) { if (r.a.level === "High") hi++; else if (r.a.level === "Moderate") mo++; else lo++; if (r.live) liveN++; });
+    var srcTxt = liveN === 0 ? "sample values" : liveN === rows.length ? "NASA POWER" : "NASA POWER + sample";
+    body.innerHTML =
+      '<div class="loc"><span class="name">India at a glance</span><span class="coord">' + rows.length + " of " + STATES.length + " states and territories" + (finished ? "" : " · reading NASA data…") + "</span></div>" +
+      '<div class="issues"><span class="pill bad">' + hi + ' high</span><span class="pill warn">' + mo + ' moderate</span><span class="pill good">' + lo + " low</span></div>" +
+      '<div class="details"><div class="sec"><h2>Flood risk by state <span class="src">' + srcTxt + '</span></h2><ul class="rank">' +
+      rows.map(function (r) {
+        var c = r.a.level === "High" ? "bad" : r.a.level === "Moderate" ? "warn" : "good";
+        return '<li><button type="button" class="rankrow" data-i="' + r.i + '"><span class="n">' + esc(r.s.name) + "<small>" + esc(r.s.cap) + '</small></span><span class="r">' + r.d.rain7 + ' mm / 7 d</span><span class="pill ' + c + '">' + r.a.level + "</span></button></li>";
+      }).join("") + '</ul></div><p class="note">Each state is read at its capital. Tap a row to open that state, or tap anywhere on the globe. Risk levels are rule-based estimates, not official warnings.</p></div>';
+  }
+  async function loadIndia() {
+    var my = ++indiaTok, queue = STATES.slice(), rows = [], count = 0;
+    indiaRows = rows; paintDots(); renderIndia(false);
+    async function worker() {
+      while (queue.length && my === indiaTok) {
+        var s = queue.shift(), d = sample(s.lat, s.lon), live = false;
+        if (liveOK) {
+          try { var v = await livePower(s.lat, s.lon); d = Object.assign(d, v); d.src = { rain: "NASA POWER", veg: "sample" }; live = true; } catch (e) { /* keep sample */ }
+        }
+        if (my !== indiaTok) return;
+        rows.push({ s: s, d: d, a: analyse(d), live: live });
+        count++;
+        if (count % 6 === 0 || !queue.length) { paintDots(); if (indiaMode) renderIndia(count >= STATES.length); }
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker(), worker(), worker()]);
+    if (my === indiaTok) { paintDots(); if (indiaMode) renderIndia(true); }
+  }
+  function showIndia() {
+    indiaMode = true; token++; current = null;
+    globe.htmlElementsData([]); globe.ringsData([]);
+    focus(22.5, 80.5, 1.0);
+    loadIndia();
+  }
+  body.addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest(".rankrow") : null;
+    if (!b || !indiaRows.length) return;
+    var r = indiaRows[+b.dataset.i]; if (!r) return;
+    focus(r.s.lat, r.s.lon, 0.6); select(r.s.lat, r.s.lon, r.s.name + " (" + r.s.cap + ")");
+  });
+
+  /* tap detection: a short press with little movement drops a pin, a drag spins the globe */
+  var down = null, activePointers = 0;
+  globeEl.addEventListener("pointerdown", function (e) { activePointers++; down = activePointers > 1 ? null : { x: e.clientX, y: e.clientY, t: Date.now() }; });
+  globeEl.addEventListener("pointercancel", function () { activePointers = Math.max(0, activePointers - 1); down = null; });
+  globeEl.addEventListener("pointerup", function (e) {
+    activePointers = Math.max(0, activePointers - 1);
+    var d0 = down; down = null;
+    if (!d0 || Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 8 || Date.now() - d0.t > 650) return;
+    var rect = globeEl.getBoundingClientRect(), c = null;
+    if (typeof globe.toGlobeCoords === "function") c = globe.toGlobeCoords(e.clientX - rect.left, e.clientY - rect.top);
+    if (c && isFinite(c.lat) && isFinite(c.lng)) tapSelect(c.lat, c.lng);
+    else if (c === null && typeof globe.toGlobeCoords === "function") { $("sugg").hidden = true; }
+  });
+  if (typeof globe.toGlobeCoords !== "function") globe.onGlobeClick(function (c) { tapSelect(c.lat, c.lng); });
+
+  /* ---------- presets ---------- */
+  var presetRow = $("presets");
+  (function () {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip glass"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = "India<small>overview</small>";
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(presetRow.children, function (x) { x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+      showIndia();
+    });
+    presetRow.appendChild(b);
+  })();
+  PLACES.forEach(function (p) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip glass"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = esc(p.short) + "<small>" + esc(p.tag) + "</small>";
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(presetRow.children, function (x) { x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+      focus(p.lat, p.lon, 0.8); select(p.lat, p.lon, p.name);
+    });
+    presetRow.appendChild(b);
+  });
+  presetRow.children[0].setAttribute("aria-pressed", "true");
+
+  /* ---------- search ---------- */
+  var sugg = $("sugg"), q = $("q"), searchTimer, searchSeq = 0;
+  function norm(s) { return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+  function localMatches(text) {
+    var t = norm(text.trim()), out = [];
+    var m = t.match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
+    if (m) { var la = parseFloat(m[1]), lo = parseFloat(m[2]); if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) out.push({ name: "Coordinates " + la + ", " + lo, lat: la, lon: lo, z: 6, coordsOnly: true }); }
+    if (!t) return out;
+    var all = [["India", 22.5, 80.5, 2]].concat(STATES.map(function (s) { return [s.name + ", India", s.lat, s.lon, 5]; })).concat(PLACES.map(function (p) { return [p.name, p.lat, p.lon, 5]; })).concat(GAZ);
+    var starts = [], has = [];
+    all.forEach(function (g) {
+      var n = norm(g[0]);
+      if (n.indexOf(t) === 0) starts.push(g); else if (n.indexOf(t) > -1) has.push(g);
+    });
+    starts.concat(has).slice(0, 6).forEach(function (g) { out.push({ name: g[0], lat: g[1], lon: g[2], z: g[3] || 7 }); });
+    return out;
+  }
+  function showSugg(list) {
+    sugg.innerHTML = "";
+    if (!list.length) { sugg.hidden = true; return; }
+    list.forEach(function (r) {
+      var li = document.createElement("li"), b = document.createElement("button");
+      b.type = "button";
+      b.innerHTML = "<span>" + esc(r.name) + '</span><span class="c">' + fmtCoord(r.lat, r.lon).replace("  ", " ") + "</span>";
+      b.addEventListener("click", function () { pick(r); });
+      li.appendChild(b); sugg.appendChild(li);
+    });
+    sugg.hidden = false; sugg._list = list;
+  }
+  function pick(r) {
+    q.value = r.coordsOnly ? "" : r.name; sugg.hidden = true; q.blur();
+    goTo(r.lat, r.lon, r.z || 6, r.coordsOnly ? null : r.name);
+  }
+  async function onlineSearch(text, seq, base) {
+    try {
+      var res = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=5&q=" + encodeURIComponent(text), { signal: timeout(6000) });
+      var j = await res.json();
+      if (seq !== searchSeq) return;
+      var extra = j.map(function (x) {
+        var nm = x.display_name.split(",").map(function (s) { return s.trim(); });
+        var short = nm.length > 3 ? nm[0] + ", " + nm[1] + ", " + nm[nm.length - 1] : x.display_name;
+        return { name: short, lat: parseFloat(x.lat), lon: parseFloat(x.lon), z: 7 };
+      });
+      showSugg(base.concat(extra).slice(0, 7));
+    } catch (e) { /* the built-in list stays */ }
+  }
+  q.addEventListener("input", function () {
+    var text = q.value, seq = ++searchSeq, base = localMatches(text);
+    showSugg(base);
+    clearTimeout(searchTimer);
+    if (liveOK && text.trim().length > 2) searchTimer = setTimeout(function () { onlineSearch(text, seq, base); }, 400);
+  });
+  $("searchForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var list = sugg._list && !sugg.hidden ? sugg._list : localMatches(q.value);
+    if (list.length) pick(list[0]);
+    else toast("No match found. Try a city name or coordinates like 23.8, 90.4.");
+  });
+
+  /* ---------- start ---------- */
+  var first = PLACES[0];
+  setMode();
+  showIndia();
+  livePower(first.lat, first.lon).then(function () {
+    liveOK = true; setMode();
+    if (indiaMode) loadIndia(); else if (current) select(current.lat, current.lon, current.name);
+  }).catch(function () { liveOK = false; setMode(); });
+})();
+</script>
+
+</body>
+</html>
